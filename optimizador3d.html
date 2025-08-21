@@ -113,6 +113,18 @@
             margin-bottom: 12px;
         }
 
+        /* Adaptabilidad para evitar cortes en formularios estrechos */
+        @media (max-width: 380px) {
+            .form-row {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        @media (max-width: 320px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .form-group {
             display: flex;
             flex-direction: column;
@@ -961,6 +973,11 @@
         function updateGrid() {
             if (gridHelper) {
                 scene.remove(gridHelper);
+            }
+            // sincronizar estado con el checkbox si existe
+            const gridCheckbox = document.getElementById('show-grid');
+            if (gridCheckbox) {
+                showGrid = gridCheckbox.checked;
             }
             
             if (showGrid) {

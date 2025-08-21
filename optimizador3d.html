@@ -567,6 +567,15 @@
                 <button class="tool-btn" onclick="setView('iso')">
                     Vista 3D
                 </button>
+                <button class="tool-btn" onclick="rotateSelected('y')">
+                    Rotar Y 90°
+                </button>
+                <button class="tool-btn" onclick="rotateSelected('x')">
+                    Rotar X 90°
+                </button>
+                <button class="tool-btn" onclick="rotateSelected('z')">
+                    Rotar Z 90°
+                </button>
             </div>
         </div>
         
@@ -586,6 +595,11 @@
         let draggedBox = null;
         let showGrid = true;
         let autoRotate = false;
+        let selectedPlacedBox = null;
+        let isDraggingBox = false;
+        let dragPlane = null;
+        let dragOffset = { x: 0, z: 0 };
+        let prevPositionBackup = null;
 
         // Configuración de contenedores
         const containerTypes = {
@@ -835,8 +849,13 @@
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.target.set(0, 50, 0);
             controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
+            controls.dampingFactor = 0.1;
             controls.autoRotateSpeed = 1;
+            controls.rotateSpeed = 0.5;
+            controls.zoomSpeed = 0.8;
+            controls.panSpeed = 0.6;
+            controls.minPolarAngle = 0.1;
+            controls.maxPolarAngle = Math.PI / 2.05;
             
             // Iluminación
             setupLighting();
@@ -966,7 +985,10 @@
             // Ajustar cámara
             const maxDim = Math.max(container.width, container.depth, container.height);
             camera.position.set(maxDim * 1.2, maxDim * 0.8, maxDim * 1.2);
-            controls.target.set(0, container.height / 3, 0);
+            controls.target.set(0, container.height / 2, 0);
+            controls.minDistance = Math.max(50, maxDim * 0.4);
+            controls.maxDistance = maxDim * 4;
+            controls.update();
         }
 
         // Actualizar cuadrícula
@@ -1296,8 +1318,10 @@
         // Funciones de vista
         function resetCamera() {
             const maxDim = Math.max(container.width, container.depth, container.height);
-            camera.position.set(maxDim * 1.2, maxDim * 0.8, maxDim * 1.2);
-            controls.target.set(0, container.height / 3, 0);
+            camera.position.set(maxDim * 1.6, maxDim * 1.0, maxDim * 1.6);
+            controls.target.set(0, container.height / 2, 0);
+            controls.minDistance = Math.max(50, maxDim * 0.4);
+            controls.maxDistance = maxDim * 4;
             controls.update();
         }
 
@@ -1306,20 +1330,20 @@
             
             switch(view) {
                 case 'front':
-                    camera.position.set(0, container.height / 2, maxDim * 1.5);
+                    camera.position.set(0, container.height / 2, maxDim * 1.8);
                     controls.target.set(0, container.height / 2, 0);
                     break;
                 case 'side':
-                    camera.position.set(maxDim * 1.5, container.height / 2, 0);
+                    camera.position.set(maxDim * 1.8, container.height / 2, 0);
                     controls.target.set(0, container.height / 2, 0);
                     break;
                 case 'top':
-                    camera.position.set(0, maxDim * 1.5, 0);
+                    camera.position.set(0, maxDim * 2.0, 0);
                     controls.target.set(0, 0, 0);
                     break;
                 case 'iso':
-                    camera.position.set(maxDim, maxDim, maxDim);
-                    controls.target.set(0, container.height / 3, 0);
+                    camera.position.set(maxDim * 1.4, maxDim * 1.1, maxDim * 1.4);
+                    controls.target.set(0, container.height / 2, 0);
                     break;
             }
             
@@ -1328,6 +1352,44 @@
 
         function toggleRotation() {
             controls.autoRotate = document.getElementById('auto-rotate').checked;
+        }
+        
+        // Rotar caja seleccionada 90° en eje X/Y/Z y validar colisiones
+        function rotateSelected(axis) {
+            if (!selectedPlacedBox) return;
+            const b = selectedPlacedBox.box;
+            const oldDims = { w: b.width, h: b.height, d: b.depth };
+            let newDims = { ...oldDims };
+            if (axis === 'y') { newDims = { w: oldDims.depth, h: oldDims.height, d: oldDims.width }; }
+            if (axis === 'x') { newDims = { w: oldDims.width, h: oldDims.depth, d: oldDims.height }; }
+            if (axis === 'z') { newDims = { w: oldDims.height, h: oldDims.width, d: oldDims.depth }; }
+
+            // Probar si entra con nuevas dimensiones
+            const pos = selectedPlacedBox.position;
+            const can = canPlaceBox(pos.x, pos.y, pos.z, { width: newDims.w, height: newDims.h, depth: newDims.d });
+            if (!can) return;
+
+            // Reemplazar malla por nueva geometría con nuevas dimensiones
+            scene.remove(selectedPlacedBox.mesh);
+            const geometry = new THREE.BoxGeometry(newDims.w, newDims.h, newDims.d);
+            const material = new THREE.MeshPhongMaterial({ color: new THREE.Color(b.color), opacity: 0.9, transparent: true });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(pos.x, pos.y + newDims.h/2, pos.z);
+            mesh.castShadow = true; mesh.receiveShadow = true;
+            const edgesGeometry = new THREE.EdgesGeometry(geometry);
+            const edgesMaterial = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 1, transparent: true, opacity: 0.3 });
+            const edges = new THREE.LineSegments(edgesGeometry, edgesMaterial);
+            mesh.add(edges);
+            scene.add(mesh);
+
+            // Actualizar datos
+            b.width = newDims.w; b.height = newDims.h; b.depth = newDims.d;
+            selectedPlacedBox.mesh = mesh;
+            // Resaltar nuevamente
+            placedBoxes.forEach(item => { item.mesh.material.emissive = new THREE.Color(0x000000); });
+            mesh.material.emissive = new THREE.Color(0xffff00);
+            mesh.material.emissiveIntensity = 0.3;
+            updateStats();
         }
         // Event listeners
         function setupEventListeners() {
@@ -1372,8 +1434,56 @@
                         });
                         clickedBox.mesh.material.emissive = new THREE.Color(0xffff00);
                         clickedBox.mesh.material.emissiveIntensity = 0.3;
+                        selectedPlacedBox = clickedBox;
                     }
                 }
+            });
+
+            // Drag de cajas sobre el pallet (mouse down -> move -> up)
+            renderer.domElement.addEventListener('mousedown', (e) => {
+                const rect = renderer.domElement.getBoundingClientRect();
+                mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(placedBoxes.map(item => item.mesh));
+                if (intersects.length > 0) {
+                    const clickedMesh = intersects[0].object;
+                    const hit = placedBoxes.find(item => item.mesh === clickedMesh);
+                    if (hit) {
+                        selectedPlacedBox = hit;
+                        isDraggingBox = true;
+                        prevPositionBackup = { ...hit.position };
+                        // plano de arrastre en Y = 0
+                        dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+                    }
+                }
+            });
+
+            renderer.domElement.addEventListener('mousemove', (e) => {
+                if (!isDraggingBox || !selectedPlacedBox) return;
+                const rect = renderer.domElement.getBoundingClientRect();
+                mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                const intersectionPoint = new THREE.Vector3();
+                if (dragPlane && raycaster.ray.intersectPlane(dragPlane, intersectionPoint)) {
+                    const halfW = selectedPlacedBox.box.width / 2;
+                    const halfD = selectedPlacedBox.box.depth / 2;
+                    let nx = THREE.MathUtils.clamp(intersectionPoint.x, -container.width/2 + halfW, container.width/2 - halfW);
+                    let nz = THREE.MathUtils.clamp(intersectionPoint.z, -container.depth/2 + halfD, container.depth/2 - halfD);
+                    const ny = getStackHeight(nx, nz, selectedPlacedBox.box);
+                    const can = canPlaceBox(nx, ny, nz, selectedPlacedBox.box);
+                    if (can) {
+                        selectedPlacedBox.position = { x: nx, y: ny, z: nz };
+                        selectedPlacedBox.mesh.position.set(nx, ny + selectedPlacedBox.box.height/2, nz);
+                    }
+                }
+            });
+
+            renderer.domElement.addEventListener('mouseup', () => {
+                isDraggingBox = false;
+                dragPlane = null;
+                prevPositionBackup = null;
             });
             
             // Doble click para eliminar caja
@@ -1406,6 +1516,9 @@
                         // Actualizar UI
                         updateBoxList();
                         updateStats();
+                        if (selectedPlacedBox && selectedPlacedBox.mesh === clickedMesh) {
+                            selectedPlacedBox = null;
+                        }
                     }
                 }
             });

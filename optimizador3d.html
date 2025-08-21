@@ -1145,10 +1145,11 @@
         }
 
         // Obtener altura de apilamiento
-        function getStackHeight(x, z, box) {
+        function getStackHeight(x, z, box, ignoreItem = null) {
             let maxHeight = 0;
             
             placedBoxes.forEach(placed => {
+                if (ignoreItem && placed === ignoreItem) return;
                 const overlapX = Math.abs(x - placed.position.x) < (box.width + placed.box.width) / 2 - 1;
                 const overlapZ = Math.abs(z - placed.position.z) < (box.depth + placed.box.depth) / 2 - 1;
                 
@@ -1162,7 +1163,7 @@
         }
 
         // Verificar si se puede colocar la caja
-        function canPlaceBox(x, y, z, box) {
+        function canPlaceBox(x, y, z, box, ignoreItem = null) {
             // Verificar límites del contenedor
             if (Math.abs(x) + box.width/2 > container.width/2) return false;
             if (Math.abs(z) + box.depth/2 > container.depth/2) return false;
@@ -1170,6 +1171,7 @@
             
             // Verificar colisiones con otras cajas
             for (let placed of placedBoxes) {
+                if (ignoreItem && placed === ignoreItem) continue;
                 const overlapX = Math.abs(x - placed.position.x) < (box.width + placed.box.width) / 2 - 1;
                 const overlapZ = Math.abs(z - placed.position.z) < (box.depth + placed.box.depth) / 2 - 1;
                 const overlapY = Math.abs(y + box.height/2 - placed.position.y - placed.box.height/2) < 
@@ -1471,8 +1473,8 @@
                     const halfD = selectedPlacedBox.box.depth / 2;
                     let nx = THREE.MathUtils.clamp(intersectionPoint.x, -container.width/2 + halfW, container.width/2 - halfW);
                     let nz = THREE.MathUtils.clamp(intersectionPoint.z, -container.depth/2 + halfD, container.depth/2 - halfD);
-                    const ny = getStackHeight(nx, nz, selectedPlacedBox.box);
-                    const can = canPlaceBox(nx, ny, nz, selectedPlacedBox.box);
+                    const ny = getStackHeight(nx, nz, selectedPlacedBox.box, selectedPlacedBox);
+                    const can = canPlaceBox(nx, ny, nz, selectedPlacedBox.box, selectedPlacedBox);
                     if (can) {
                         selectedPlacedBox.position = { x: nx, y: ny, z: nz };
                         selectedPlacedBox.mesh.position.set(nx, ny + selectedPlacedBox.box.height/2, nz);

@@ -667,7 +667,7 @@
       updateStats();
     }
 
-    // Rotación segura de caja seleccionada (in-place)
+    // Rotación segura de caja seleccionada (in-place por rotación de mesh)
     function rotateSelected(axis) {
       if (!selectedPlacedBox) return;
       const item = selectedPlacedBox;
@@ -679,26 +679,19 @@
       if (axis === 'x') newDims = { w: oldDims.width, h: oldDims.depth, d: oldDims.height };
       if (axis === 'z') newDims = { w: oldDims.height, h: oldDims.width, d: oldDims.depth };
 
-      // recalcular altura usando nuevas dimensiones
       const ny = getStackHeight(pos.x, pos.z, { width: newDims.w, height: newDims.h, depth: newDims.d }, item);
       if (!canPlaceBox(pos.x, ny, pos.z, { width: newDims.w, height: newDims.h, depth: newDims.d }, item)) return;
 
       const mesh = item.mesh;
-      const oldEdges = mesh.children.filter(ch => ch.type === 'LineSegments');
-      oldEdges.forEach(ch => mesh.remove(ch));
+      // aplicar rotación del mesh según eje
+      if (axis === 'y') mesh.rotation.y += Math.PI / 2;
+      if (axis === 'x') mesh.rotation.x += Math.PI / 2;
+      if (axis === 'z') mesh.rotation.z += Math.PI / 2;
 
-      if (mesh.geometry) mesh.geometry.dispose();
-      mesh.geometry = new THREE.BoxGeometry(newDims.w, newDims.h, newDims.d);
-      mesh.position.set(pos.x, ny + newDims.h/2, pos.z);
-
-      const edges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(mesh.geometry),
-        new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 1, transparent: true, opacity: 0.25 })
-      );
-      mesh.add(edges);
-
+      // actualizar dimensiones y posición (sin recrear geometría)
       b.width = newDims.w; b.height = newDims.h; b.depth = newDims.d;
       item.position = { x: pos.x, y: ny, z: pos.z };
+      mesh.position.set(pos.x, ny + newDims.h/2, pos.z);
 
       placedBoxes.forEach(it => { it.mesh.material.emissive = new THREE.Color(0x000000); });
       mesh.material.emissive = new THREE.Color(0xffff00);

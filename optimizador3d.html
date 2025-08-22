@@ -308,6 +308,7 @@
     let isDraggingBox = false;
     let dragPlane = null;
     let prevPositionBackup = null;
+    let prevControlsState = null;
 
     // Configuración de contenedores
     const containerTypes = {
@@ -811,7 +812,22 @@
           if (!obj) return;
         
           const hit = placedBoxes.find(it => it.mesh === obj);
-          if (hit) { selectedPlacedBox = hit; isDraggingBox = true; prevPositionBackup = { ...hit.position }; }
+          if (hit) {
+            e.preventDefault();
+            e.stopPropagation();
+            selectedPlacedBox = hit;
+            isDraggingBox = true;
+            prevPositionBackup = { ...hit.position };
+            // desactivar movimiento de cámara mientras se arrastra
+            prevControlsState = {
+              rotate: controls.enableRotate,
+              pan: controls.enablePan,
+              zoom: controls.enableZoom
+            };
+            controls.enableRotate = false;
+            controls.enablePan = false;
+            controls.enableZoom = false;
+          }
         }
       });
 
@@ -838,7 +854,22 @@
         }
       });
 
-      renderer.domElement.addEventListener('mouseup', () => { isDraggingBox = false; prevPositionBackup = null; });
+      renderer.domElement.addEventListener('mouseup', () => {
+        isDraggingBox = false;
+        prevPositionBackup = null;
+        // restaurar controles de cámara
+        if (prevControlsState) {
+          controls.enableRotate = prevControlsState.rotate;
+          controls.enablePan = prevControlsState.pan;
+          controls.enableZoom = prevControlsState.zoom;
+          prevControlsState = null;
+        } else {
+          controls.enableRotate = true;
+          controls.enablePan = true;
+          controls.enableZoom = true;
+        }
+        controls.update();
+      });
 
       // Doble click para eliminar
       renderer.domElement.addEventListener('dblclick', (e) => {

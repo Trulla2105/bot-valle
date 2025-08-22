@@ -677,26 +677,27 @@
       if (axis === 'x') newDims = { w: oldDims.width, h: oldDims.depth, d: oldDims.height };
       if (axis === 'z') newDims = { w: oldDims.height, h: oldDims.width, d: oldDims.depth };
 
-      if (!canPlaceBox(pos.x, pos.y, pos.z, { width: newDims.w, height: newDims.h, depth: newDims.d }, item)) return;
+      // recalcular altura usando nuevas dimensiones
+      const ny = getStackHeight(pos.x, pos.z, { width: newDims.w, height: newDims.h, depth: newDims.d }, item);
+      if (!canPlaceBox(pos.x, ny, pos.z, { width: newDims.w, height: newDims.h, depth: newDims.d }, item)) return;
 
       const mesh = item.mesh;
-      // eliminar bordes anteriores
       const oldEdges = mesh.children.filter(ch => ch.type === 'LineSegments');
       oldEdges.forEach(ch => mesh.remove(ch));
-      // reemplazar geometría in-place
+
       if (mesh.geometry) mesh.geometry.dispose();
       mesh.geometry = new THREE.BoxGeometry(newDims.w, newDims.h, newDims.d);
-      mesh.position.set(pos.x, pos.y + newDims.h/2, pos.z);
-      // agregar nuevos bordes
+      mesh.position.set(pos.x, ny + newDims.h/2, pos.z);
+
       const edges = new THREE.LineSegments(
         new THREE.EdgesGeometry(mesh.geometry),
         new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 1, transparent: true, opacity: 0.25 })
       );
       mesh.add(edges);
 
-      // guardar nuevas dimensiones
       b.width = newDims.w; b.height = newDims.h; b.depth = newDims.d;
-      // mantener selección resaltada
+      item.position = { x: pos.x, y: ny, z: pos.z };
+
       placedBoxes.forEach(it => { it.mesh.material.emissive = new THREE.Color(0x000000); });
       mesh.material.emissive = new THREE.Color(0xffff00);
       mesh.material.emissiveIntensity = 0.3;
@@ -778,7 +779,7 @@
       renderer.domElement.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
       renderer.domElement.addEventListener('drop', (e) => { e.preventDefault(); if (draggedBox) autoPlaceBox(draggedBox); });
 
-      // Selección por click
+      // Selección por click (robusta, incluye bordes)
       renderer.domElement.addEventListener('click', (e) => {
         const rect = renderer.domElement.getBoundingClientRect();
         mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -791,6 +792,9 @@
           if (!obj) return;
           const hit = placedBoxes.find(it => it.mesh === obj);
           if (hit) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
             placedBoxes.forEach(it => { it.mesh.material.emissive = new THREE.Color(0x000000); });
             hit.mesh.material.emissive = new THREE.Color(0xffff00);
             hit.mesh.material.emissiveIntensity = 0.3;

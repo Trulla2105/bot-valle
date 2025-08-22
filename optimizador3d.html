@@ -460,6 +460,8 @@
       controls.panSpeed = 0.6;
       controls.minPolarAngle = 0.1;
       controls.maxPolarAngle = Math.PI / 2.05;
+      // deshabilitar uso del botón derecho para pan en OrbitControls
+      if (controls.mouseButtons) { controls.mouseButtons.RIGHT = -1; }
 
       setupLighting();
       raycaster = new THREE.Raycaster();
@@ -817,20 +819,20 @@
 
           const hit = placedBoxes.find(it => it.mesh === obj);
           if (hit) {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-            selectedPlacedBox = hit;
-            isDraggingBox = true;
-            prevPositionBackup = { ...hit.position };
-            prevControlsState = {
-              rotate: controls.enableRotate,
-              pan: controls.enablePan,
-              zoom: controls.enableZoom
-            };
-            controls.enableRotate = false;
-            controls.enablePan = false;
-            controls.enableZoom = false;
+            // botón derecho: rotar Y 90° y no arrastrar
+            if (e.button === 2) {
+              e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+              selectedPlacedBox = hit;
+              rotateSelected('y');
+              return;
+            }
+            // solo botón izquierdo inicia arrastre
+            if (e.button === 0) {
+              e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+              selectedPlacedBox = hit; isDraggingBox = true; prevPositionBackup = { ...hit.position };
+              prevControlsState = { rotate: controls.enableRotate, pan: controls.enablePan, zoom: controls.enableZoom };
+              controls.enableRotate = false; controls.enablePan = false; controls.enableZoom = false;
+            }
           }
         }
       }, true);

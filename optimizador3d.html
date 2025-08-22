@@ -503,7 +503,7 @@
       containerMesh = new THREE.Group();
 
       const wallMaterial = new THREE.MeshPhysicalMaterial({
-        color: 0x0084ff, transparent: true, opacity: 0.15, side: THREE.DoubleSide, roughness: 0.3, metalness: 0.1
+        color: 0x0084ff, transparent: true, opacity: 0.15, side: THREE.DoubleSide, roughness: 0.3, metalness: 0.1, depthWrite: false
       });
 
       const floorGeometry = new THREE.PlaneGeometry(container.width, container.depth);
@@ -650,8 +650,10 @@
 
     function placeBox(box, position) {
       const geometry = new THREE.BoxGeometry(box.width, box.height, box.depth);
-      const material = new THREE.MeshPhongMaterial({ color: new THREE.Color(box.color), opacity: 0.95, transparent: true });
+      const material = new THREE.MeshPhongMaterial({ color: new THREE.Color(box.color), opacity: 1, transparent: false });
       const mesh = new THREE.Mesh(geometry, material);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 2;
       mesh.position.set(position.x, position.y + box.height/2, position.z);
       // sin sombras
 
@@ -667,36 +669,23 @@
       updateStats();
     }
 
-    // Rotación segura de caja seleccionada (in-place por rotación de mesh)
+    // Rotación visual segura (no cambia dimensiones internas)
     function rotateSelected(axis) {
       if (!selectedPlacedBox) return;
       const item = selectedPlacedBox;
-      const b = item.box;
-      const pos = item.position;
-      const oldDims = { w: b.width, h: b.height, d: b.depth };
-      let newDims = { ...oldDims };
-      if (axis === 'y') newDims = { w: oldDims.depth, h: oldDims.height, d: oldDims.width };
-      if (axis === 'x') newDims = { w: oldDims.width, h: oldDims.depth, d: oldDims.height };
-      if (axis === 'z') newDims = { w: oldDims.height, h: oldDims.width, d: oldDims.depth };
-
-      const ny = getStackHeight(pos.x, pos.z, { width: newDims.w, height: newDims.h, depth: newDims.d }, item);
-      if (!canPlaceBox(pos.x, ny, pos.z, { width: newDims.w, height: newDims.h, depth: newDims.d }, item)) return;
-
       const mesh = item.mesh;
-      // aplicar rotación del mesh según eje
+      const halfH = item.box.height / 2;
+
       if (axis === 'y') mesh.rotation.y += Math.PI / 2;
       if (axis === 'x') mesh.rotation.x += Math.PI / 2;
       if (axis === 'z') mesh.rotation.z += Math.PI / 2;
 
-      // actualizar dimensiones y posición (sin recrear geometría)
-      b.width = newDims.w; b.height = newDims.h; b.depth = newDims.d;
-      item.position = { x: pos.x, y: ny, z: pos.z };
-      mesh.position.set(pos.x, ny + newDims.h/2, pos.z);
-
-      placedBoxes.forEach(it => { it.mesh.material.emissive = new THREE.Color(0x000000); });
-      mesh.material.emissive = new THREE.Color(0xffff00);
-      mesh.material.emissiveIntensity = 0.3;
-      updateStats();
+      // mantener por encima del piso
+      if (mesh.position.y < halfH) mesh.position.y = halfH;
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 2;
+      mesh.visible = true;
+      mesh.updateMatrixWorld(true);
     }
 
     // Estadísticas

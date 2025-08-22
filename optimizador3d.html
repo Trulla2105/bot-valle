@@ -799,7 +799,7 @@
         }
       });
 
-      // Drag de caja ya colocada en pallet
+      // Drag de caja ya colocada (desactiva controles mientras arrastra)
       renderer.domElement.addEventListener('mousedown', (e) => {
         const rect = renderer.domElement.getBoundingClientRect();
         mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -810,15 +810,15 @@
           let obj = itx[0].object;
           while (obj && !(obj instanceof THREE.Mesh)) obj = obj.parent;
           if (!obj) return;
-        
+
           const hit = placedBoxes.find(it => it.mesh === obj);
           if (hit) {
             e.preventDefault();
             e.stopPropagation();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
             selectedPlacedBox = hit;
             isDraggingBox = true;
             prevPositionBackup = { ...hit.position };
-            // desactivar movimiento de cámara mientras se arrastra
             prevControlsState = {
               rotate: controls.enableRotate,
               pan: controls.enablePan,
@@ -829,15 +829,15 @@
             controls.enableZoom = false;
           }
         }
-      });
+      }, true);
 
       renderer.domElement.addEventListener('mousemove', (e) => {
+        if (isDraggingBox) { e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); }
         if (!isDraggingBox || !selectedPlacedBox) return;
         const rect = renderer.domElement.getBoundingClientRect();
         mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(mouse, camera);
-        // Intersección con plano Y=0
         const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         const pt = new THREE.Vector3();
         if (raycaster.ray.intersectPlane(plane, pt)) {
@@ -852,12 +852,12 @@
             selectedPlacedBox.mesh.position.set(nx, ny + selectedPlacedBox.box.height/2, nz);
           }
         }
-      });
+      }, true);
 
-      renderer.domElement.addEventListener('mouseup', () => {
+      renderer.domElement.addEventListener('mouseup', (e) => {
+        if (isDraggingBox) { e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); }
         isDraggingBox = false;
         prevPositionBackup = null;
-        // restaurar controles de cámara
         if (prevControlsState) {
           controls.enableRotate = prevControlsState.rotate;
           controls.enablePan = prevControlsState.pan;
@@ -869,7 +869,7 @@
           controls.enableZoom = true;
         }
         controls.update();
-      });
+      }, true);
 
       // Doble click para eliminar
       renderer.domElement.addEventListener('dblclick', (e) => {

@@ -669,23 +669,48 @@
       updateStats();
     }
 
-    // Rotación visual segura (no cambia dimensiones internas)
+    // Rotación con ajuste de altura y validación de colisiones
     function rotateSelected(axis) {
       if (!selectedPlacedBox) return;
+
       const item = selectedPlacedBox;
       const mesh = item.mesh;
-      const halfH = item.box.height / 2;
+      const b = item.box;
+      const pos = item.position;
 
+      const oldDims = { w: b.width, h: b.height, d: b.depth };
+      let newDims = { ...oldDims };
+      if (axis === 'y') newDims = { w: oldDims.d, h: oldDims.h, d: oldDims.w };
+      if (axis === 'x') newDims = { w: oldDims.w, h: oldDims.d, d: oldDims.h };
+      if (axis === 'z') newDims = { w: oldDims.h, h: oldDims.w, d: oldDims.d };
+
+      // calcular altura de apoyo con nuevas dimensiones e ignorando esta caja
+      const nyRaw = getStackHeight(pos.x, pos.z, { width: newDims.w, height: newDims.h, depth: newDims.d }, item);
+      const ny = Math.max(0, nyRaw);
+
+      // validar si cabe en nueva orientación y altura calculada
+      const fits = canPlaceBox(pos.x, ny, pos.z, { width: newDims.w, height: newDims.h, depth: newDims.d }, item);
+      if (!fits) return;
+
+      // aplicar la rotación visual en el mesh
       if (axis === 'y') mesh.rotation.y += Math.PI / 2;
       if (axis === 'x') mesh.rotation.x += Math.PI / 2;
       if (axis === 'z') mesh.rotation.z += Math.PI / 2;
 
-      // mantener por encima del piso
-      if (mesh.position.y < halfH) mesh.position.y = halfH;
+      // actualizar dimensiones y posición, y forzar visibilidad
+      b.width = newDims.w; b.height = newDims.h; b.depth = newDims.d;
+      item.position = { x: pos.x, y: ny, z: pos.z };
+      mesh.position.set(pos.x, ny + newDims.h / 2, pos.z);
       mesh.frustumCulled = false;
       mesh.renderOrder = 2;
       mesh.visible = true;
       mesh.updateMatrixWorld(true);
+
+      // resaltar selección y actualizar stats
+      placedBoxes.forEach(it => { it.mesh.material.emissive = new THREE.Color(0x000000); });
+      mesh.material.emissive = new THREE.Color(0xffff00);
+      mesh.material.emissiveIntensity = 0.3;
+      updateStats();
     }
 
     // Estadísticas

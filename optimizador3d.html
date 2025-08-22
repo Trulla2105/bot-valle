@@ -306,9 +306,9 @@
     let autoRotate = false;
     let selectedPlacedBox = null;
     let isDraggingBox = false;
-    let dragPlane = null;
     let prevPositionBackup = null;
     let prevControlsState = null;
+    let selectedDragStack = null; // array de items (base + superiores)
 
     // Configuración de contenedores
     const containerTypes = {
@@ -648,6 +648,63 @@
       return true;
     }
 
+    // Helpers de apilado
+    function boxesOverlapXZAt(x, z, aDims, bItem) {
+      return Math.abs(x - bItem.position.x) < (aDims.width + bItem.box.width) / 2 - 1 &&
+             Math.abs(z - bItem.position.z) < (aDims.depth + bItem.box.depth) / 2 - 1;
+    }
+
+    function boxesOverlapXZItems(aItem, bItem) {
+      return Math.abs(aItem.position.x - bItem.position.x) < (aItem.box.width + bItem.box.width) / 2 - 1 &&
+             Math.abs(aItem.position.z - bItem.position.z) < (aItem.box.depth + bItem.box.depth) / 2 - 1;
+    }
+
+    function isDirectlyOnTop(upperItem, lowerItem) {
+      if (!boxesOverlapXZItems(upperItem, lowerItem)) return false;
+      const eps = 1.5;
+      const expectedY = lowerItem.position.y + lowerItem.box.height;
+      return Math.abs(upperItem.position.y - expectedY) <= eps;
+    }
+
+    // Devuelve [base, ...superiores] siguiendo la cadena vertical
+    function getStackAbove(baseItem) {
+      const stack = [baseItem];
+      let current = baseItem;
+      const used = new Set();
+      used.add(current);
+      while (true) {
+        let next = null;
+        for (const it of placedBoxes) {
+          if (it === current) continue;
+          if (isDirectlyOnTop(it, current)) { next = it; break; }
+        }
+        if (!next) break;
+        stack.push(next);
+        current = next;
+        if (used.has(current)) break;
+        used.add(current);
+      }
+      return stack;
+    }
+
+    function canPlaceStackAt(stack, baseX, baseZ) {
+      // Altura base segun apilado en nueva ubicación (ignorando la propia pila)
+      const baseBoxDims = { width: stack[0].box.width, height: stack[0].box.height, depth: stack[0].box.depth };
+      const baseY = Math.max(0, getStackHeight(baseX, baseZ, baseBoxDims, stack[0]));
+      // Verificar cada nivel de la pila
+      let cursorY = baseY;
+      for (let i = 0; i < stack.length; i++) {
+        const item = stack[i];
+        const dims = { width: item.box.width, height: item.box.height, depth: item.box.depth };
+        if (!canPlaceBox(baseX, cursorY, baseZ, dims, item)) return { ok: false };
+        // asegurar que no colisiona con otros niveles de la misma pila: ignorados via ignoreItem en canPlaceBox
+        cursorY += dims.height;
+      }
+      return { ok: true, baseY };
+    }
+
+    function snap(v, step) { return Math.round(v / step) * step; }
+
     function placeBox(box, position) {
       const geometry = new THREE.BoxGeometry(box.width, box.height, box.depth);
       const material = new THREE.MeshPhongMaterial({ color: new THREE.Color(box.color), opacity: 1, transparent: false });
@@ -826,17 +883,18 @@
 
           const hit = placedBoxes.find(it => it.mesh === obj);
           if (hit) {
-            // botón derecho: rotar Y 90° y no arrastrar
+            // botón derecho: rotar Y 90°
             if (e.button === 2) {
               e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation();
               selectedPlacedBox = hit;
               rotateSelected('y');
               return;
             }
-            // solo botón izquierdo inicia arrastre
+            // botón izquierdo: arrastrar pila (base + superiores)
             if (e.button === 0) {
               e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation();
               selectedPlacedBox = hit; isDraggingBox = true; prevPositionBackup = { ...hit.position };
+              selectedDragStack = getStackAbove(hit);
               prevControlsState = { rotate: controls.enableRotate, pan: controls.enablePan, zoom: controls.enableZoom };
               controls.enableRotate = false; controls.enablePan = false; controls.enableZoom = false;
             }
@@ -854,32 +912,36 @@
         const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         const pt = new THREE.Vector3();
         if (raycaster.ray.intersectPlane(plane, pt)) {
-          const halfW = selectedPlacedBox.box.width / 2;
-          const halfD = selectedPlacedBox.box.depth / 2;
-          let nx = THREE.MathUtils.clamp(pt.x, -container.width/2 + halfW, container.width/2 - halfW);
-          let nz = THREE.MathUtils.clamp(pt.z, -container.depth/2 + halfD, container.depth/2 - halfD);
-          const ny = getStackHeight(nx, nz, selectedPlacedBox.box, selectedPlacedBox);
-          const can = canPlaceBox(nx, ny, nz, selectedPlacedBox.box, selectedPlacedBox);
-          if (can) {
-            selectedPlacedBox.position = { x: nx, y: ny, z: nz };
-            selectedPlacedBox.mesh.position.set(nx, ny + selectedPlacedBox.box.height/2, nz);
+          // destino propuesto con snap
+          const base = selectedPlacedBox;
+          const halfW = base.box.width / 2;
+          const halfD = base.box.depth / 2;
+          let nx = THREE.MathUtils.clamp(snap(pt.x, 1), -container.width/2 + halfW, container.width/2 - halfW);
+          let nz = THREE.MathUtils.clamp(snap(pt.z, 1), -container.depth/2 + halfD, container.depth/2 - halfD);
+          const group = selectedDragStack && selectedDragStack.length ? selectedDragStack : [base];
+          const res = canPlaceStackAt(group, nx, nz);
+          if (res.ok) {
+            // aplicar posiciones a toda la pila
+            let cursorY = res.baseY;
+            for (let i = 0; i < group.length; i++) {
+              const it = group[i];
+              it.position = { x: nx, y: cursorY, z: nz };
+              it.mesh.position.set(nx, cursorY + it.box.height/2, nz);
+              cursorY += it.box.height;
+            }
           }
         }
       }, true);
 
       renderer.domElement.addEventListener('mouseup', (e) => {
         if (isDraggingBox) { e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); }
-        isDraggingBox = false;
-        prevPositionBackup = null;
+        isDraggingBox = false; prevPositionBackup = null;
+        selectedDragStack = null;
         if (prevControlsState) {
-          controls.enableRotate = prevControlsState.rotate;
-          controls.enablePan = prevControlsState.pan;
-          controls.enableZoom = prevControlsState.zoom;
+          controls.enableRotate = prevControlsState.rotate; controls.enablePan = prevControlsState.pan; controls.enableZoom = prevControlsState.zoom;
           prevControlsState = null;
         } else {
-          controls.enableRotate = true;
-          controls.enablePan = true;
-          controls.enableZoom = true;
+          controls.enableRotate = true; controls.enablePan = true; controls.enableZoom = true;
         }
         controls.update();
       }, true);
@@ -890,12 +952,23 @@
         mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(mouse, camera);
-        const itx = raycaster.intersectObjects(placedBoxes.map(it => it.mesh));
+        const itx = raycaster.intersectObjects(placedBoxes.map(it => it.mesh), true);
         if (itx.length > 0) {
-          const mesh = itx[0].object; const idx = placedBoxes.findIndex(it => it.mesh === mesh);
+          let obj = itx[0].object;
+          while (obj && !(obj instanceof THREE.Mesh)) obj = obj.parent;
+          if (!obj) return;
+          const clicked = placedBoxes.find(it => it.mesh === obj);
+          if (!clicked) return;
+          // Enforce top-down delete: solo si no hay ninguna caja directamente arriba
+          const above = getStackAbove(clicked);
+          if (above.length > 1) {
+            alert('Primero elimina las cajas superiores de la pila (de arriba hacia abajo).');
+            return;
+          }
+          const idx = placedBoxes.findIndex(it => it === clicked);
           if (idx !== -1) {
             const removed = placedBoxes[idx]; scene.remove(removed.mesh); removed.box.placed = false; placedBoxes.splice(idx, 1);
-            if (selectedPlacedBox && selectedPlacedBox.mesh === mesh) selectedPlacedBox = null;
+            if (selectedPlacedBox && selectedPlacedBox === clicked) selectedPlacedBox = null;
             updateBoxList(); updateStats();
           }
         }

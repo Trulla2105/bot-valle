@@ -664,34 +664,38 @@
       updateStats();
     }
 
-    // Rotación segura de caja seleccionada
+    // Rotación segura de caja seleccionada (in-place)
     function rotateSelected(axis) {
       if (!selectedPlacedBox) return;
-      const b = selectedPlacedBox.box; const pos = selectedPlacedBox.position;
+      const item = selectedPlacedBox;
+      const b = item.box;
+      const pos = item.position;
       const oldDims = { w: b.width, h: b.height, d: b.depth };
       let newDims = { ...oldDims };
       if (axis === 'y') newDims = { w: oldDims.depth, h: oldDims.height, d: oldDims.width };
       if (axis === 'x') newDims = { w: oldDims.width, h: oldDims.depth, d: oldDims.height };
       if (axis === 'z') newDims = { w: oldDims.height, h: oldDims.width, d: oldDims.depth };
 
-      if (!canPlaceBox(pos.x, pos.y, pos.z, { width: newDims.w, height: newDims.h, depth: newDims.d }, selectedPlacedBox)) return;
+      if (!canPlaceBox(pos.x, pos.y, pos.z, { width: newDims.w, height: newDims.h, depth: newDims.d }, item)) return;
 
-      // Reemplazar malla
-      scene.remove(selectedPlacedBox.mesh);
-      const geometry = new THREE.BoxGeometry(newDims.w, newDims.h, newDims.d);
-      const material = new THREE.MeshPhongMaterial({ color: new THREE.Color(b.color), opacity: 0.95, transparent: true });
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = item.mesh;
+      // eliminar bordes anteriores
+      const oldEdges = mesh.children.filter(ch => ch.type === 'LineSegments');
+      oldEdges.forEach(ch => mesh.remove(ch));
+      // reemplazar geometría in-place
+      if (mesh.geometry) mesh.geometry.dispose();
+      mesh.geometry = new THREE.BoxGeometry(newDims.w, newDims.h, newDims.d);
       mesh.position.set(pos.x, pos.y + newDims.h/2, pos.z);
-      const edgesGeometry = new THREE.EdgesGeometry(geometry);
-      const edgesMaterial = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 1, transparent: true, opacity: 0.25 });
-      const edges = new THREE.LineSegments(edgesGeometry, edgesMaterial);
+      // agregar nuevos bordes
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(mesh.geometry),
+        new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 1, transparent: true, opacity: 0.25 })
+      );
       mesh.add(edges);
-      scene.add(mesh);
 
-      // Actualizar dimensiones y referencia
+      // guardar nuevas dimensiones
       b.width = newDims.w; b.height = newDims.h; b.depth = newDims.d;
-      selectedPlacedBox.mesh = mesh;
-      // Resaltar
+      // mantener selección resaltada
       placedBoxes.forEach(it => { it.mesh.material.emissive = new THREE.Color(0x000000); });
       mesh.material.emissive = new THREE.Color(0xffff00);
       mesh.material.emissiveIntensity = 0.3;
@@ -779,9 +783,12 @@
         mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(mouse, camera);
-        const itx = raycaster.intersectObjects(placedBoxes.map(it => it.mesh));
+        const itx = raycaster.intersectObjects(placedBoxes.map(it => it.mesh), true);
         if (itx.length > 0) {
-          const mesh = itx[0].object; const hit = placedBoxes.find(it => it.mesh === mesh);
+          let obj = itx[0].object;
+          while (obj && !(obj instanceof THREE.Mesh)) obj = obj.parent;
+          if (!obj) return;
+          const hit = placedBoxes.find(it => it.mesh === obj);
           if (hit) {
             placedBoxes.forEach(it => { it.mesh.material.emissive = new THREE.Color(0x000000); });
             hit.mesh.material.emissive = new THREE.Color(0xffff00);
@@ -797,9 +804,13 @@
         mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(mouse, camera);
-        const itx = raycaster.intersectObjects(placedBoxes.map(it => it.mesh));
+        const itx = raycaster.intersectObjects(placedBoxes.map(it => it.mesh), true);
         if (itx.length > 0) {
-          const mesh = itx[0].object; const hit = placedBoxes.find(it => it.mesh === mesh);
+          let obj = itx[0].object;
+          while (obj && !(obj instanceof THREE.Mesh)) obj = obj.parent;
+          if (!obj) return;
+        
+          const hit = placedBoxes.find(it => it.mesh === obj);
           if (hit) { selectedPlacedBox = hit; isDraggingBox = true; prevPositionBackup = { ...hit.position }; }
         }
       });
